@@ -273,6 +273,8 @@ fn main() -> Result<()> {
 
 
     let pbar = Arc::new(Mutex::new(pbar));
+    pbar.lock().unwrap().inc(0); // setup pbar 
+    
     let threadpool = ThreadPool::new(threads);
     let reshard_counter = Arc::new(AtomicUsize::new(0));
     let total_docs = Arc::new(AtomicUsize::new(0));
