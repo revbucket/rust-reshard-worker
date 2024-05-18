@@ -264,7 +264,7 @@ fn main() -> Result<()> {
     let batches: Vec<&[PathBuf]> = input_files.chunks(args.batch_size).collect();
     let num_outputs = batches.len();
 
-    let pbar = ProgressBar::new(100 as u64)
+    let pbar = ProgressBar::new(num_outputs as u64)
         .with_style(
             ProgressStyle::with_template(
                 "Files {human_pos}/{human_len} [{elapsed_precise}/{duration_precise}] [{wide_bar:.cyan/blue}]",
