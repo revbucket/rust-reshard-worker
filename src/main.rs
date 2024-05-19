@@ -75,7 +75,6 @@ struct Args {
 pub(crate) fn expand_dirs(paths: Vec<PathBuf>, ext: Option<&str>) -> Result<Vec<PathBuf>> {
     // For local directories -> does a glob over each directory to get all files with given extension
     // For s3 directories -> does an aws s3 ls to search for files
-    let ext = ext.unwrap_or(".jsonl.gz"); // Defaults to jsonl.gz, json.gz
 
     let mut files: Vec<PathBuf> = Vec::new();
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -85,11 +84,12 @@ pub(crate) fn expand_dirs(paths: Vec<PathBuf>, ext: Option<&str>) -> Result<Vec<
         if is_s3(path.clone()) {
             // Use async_std to block until we scour the s3 directory for files
             runtime.block_on(async {
-                let s3_paths = expand_s3_dir(&path, Some(ext)).await.unwrap();
+                let s3_paths = expand_s3_dir(&path, ext).await.unwrap();
                 files.extend(s3_paths);                
             });                
         }
         else if path.is_dir() {
+            let ext = ext.unwrap_or(".jsonl.gz"); // Defaults to jsonl.gz, json.gz
             let path_str = path
                 .to_str()
                 .ok_or_else(|| anyhow!("invalid path '{}'", path.to_string_lossy()))?;
@@ -259,7 +259,13 @@ fn main() -> Result<()> {
     } else {
         args.threads
     };    
-    let input_files: Vec<PathBuf> =  expand_dirs(args.input, Some(&args.ext)).unwrap();
+
+    let ext: Option<&str> = if args.ext.len() == 0 {
+        None
+    } else {
+        Some(&args.ext)
+    };
+    let input_files: Vec<PathBuf> =  expand_dirs(args.input, ext).unwrap();
     let num_inputs = input_files.len();
     let batches: Vec<&[PathBuf]> = input_files.chunks(args.batch_size).collect();
     let num_outputs = batches.len();

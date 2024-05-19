@@ -94,7 +94,7 @@ pub(crate) async fn expand_s3_dir(s3_uri: &PathBuf, ext: Option<&str>) -> Result
     let client = get_s3_client().await?;
     let (bucket, prefix) = split_s3_path(s3_uri);
 
-    let ext = ext.unwrap_or(".jsonl.gz");
+    //let ext = ext.unwrap_or(".jsonl.gz");
     let mut response = client
         .list_objects_v2()    
         .bucket(bucket.to_owned())
@@ -106,8 +106,12 @@ pub(crate) async fn expand_s3_dir(s3_uri: &PathBuf, ext: Option<&str>) -> Result
         match result {
             Ok(output) => {
                 for object in output.contents() {
-                    let key = object.key().unwrap_or_default();                    
-                    if !key.ends_with(ext) {
+                    let key = object.key().unwrap_or_default();     
+                    if !ext.is_none() && !key.ends_with(ext.unwrap()) {
+                        continue;
+                    }
+                    if !(key.ends_with(".jsonl.gz") || key.ends_with(".json.gz") || key.ends_with(".jsonl.zstd") || key.ends_with(".tar") 
+                         || key.ends_with(".jsonl") || key.ends_with(".jsonl.zst") ) {
                         continue;
                     }
                     let mut s3_file = PathBuf::from("s3://");
