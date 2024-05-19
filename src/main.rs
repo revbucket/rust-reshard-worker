@@ -231,7 +231,7 @@ fn reshard_batch(batch: &Vec<PathBuf>, output_dir: &PathBuf, prefix: &String, ex
             encoder.write_all(&output_bytes).unwrap();            
             encoder.finish().unwrap()            
         },
-        "zstd" => {
+        "zstd" | "zst" => {
             let mut encoder = ZstdEncoder::new(Vec::new(), 0).unwrap();
             encoder.write_all(&output_bytes).unwrap();
             encoder.finish().unwrap()
@@ -274,7 +274,7 @@ fn main() -> Result<()> {
 
     let pbar = Arc::new(Mutex::new(pbar));
     pbar.lock().unwrap().inc(0); // setup pbar 
-    
+
     let threadpool = ThreadPool::new(threads);
     let reshard_counter = Arc::new(AtomicUsize::new(0));
     let total_docs = Arc::new(AtomicUsize::new(0));
