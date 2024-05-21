@@ -33,7 +33,7 @@ pub mod s3;
 #[derive(Parser, Debug)]
 struct Args {
     /// (List of) directories/files (on s3 or local) that are jsonl.gz or jsonl.zstd files
-    #[arg(required=true, long)]
+    #[arg(required=true, long, num_args=1..)]
     input: Vec<PathBuf>,
 
 
@@ -62,8 +62,12 @@ struct Args {
     threads: usize,
 
     /// Extension to save output to 
-    #[arg(long, default_value_t=String::from("gz"))] // zstd is the ONLY other valid choice!
+    #[arg(long, default_value_t=String::from(""))] // zstd is the ONLY other valid choice!
     ext: String,
+
+    /// Extension of output files 
+    #[arg(long, default_value_t=String::from("gz"))]    
+    output_ext: String,
 
 }
 
@@ -195,7 +199,7 @@ fn get_output_name(output_dir: &PathBuf, prefix: &String, shard_id: usize) -> Pa
 ================================================*/
 
 
-fn reshard_batch(batch: &Vec<PathBuf>, output_dir: &PathBuf, prefix: &String, ext: &String,
+fn reshard_batch(batch: &Vec<PathBuf>, output_dir: &PathBuf, prefix: &String, output_ext: &String,
                        reshard_counter: Arc<AtomicUsize>, subsample_rate: f64, seed: usize,
                        total_docs: Arc<AtomicUsize>, surviving_docs: Arc<AtomicUsize>) -> Result<(), Error> {
     let shard_id = reshard_counter.fetch_add(1, Ordering::SeqCst) as usize;
@@ -225,7 +229,7 @@ fn reshard_batch(batch: &Vec<PathBuf>, output_dir: &PathBuf, prefix: &String, ex
     let output_bytes = output_bytes.as_bytes();
 
     // Join output lines together and get the thing we want to write
-    let bytes_to_write = match ext.as_str() {
+    let bytes_to_write = match output_ext.as_str() {
         "gz" => {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
             encoder.write_all(&output_bytes).unwrap();            
@@ -289,7 +293,7 @@ fn main() -> Result<()> {
         let batch = batch.to_vec();
         let output = args.output.clone();
         let prefix = args.prefix.clone();
-        let ext = args.ext.clone();
+        let output_ext = args.output_ext.clone();
         let reshard_counter = reshard_counter.clone();        
         let subsample_rate = args.subsample_rate.clone();
         let seed = args.seed.clone();
@@ -297,7 +301,7 @@ fn main() -> Result<()> {
         let surviving_docs = surviving_docs.clone();
         let pbar = pbar.clone();
         threadpool.execute(move || {        
-            reshard_batch(&batch, &output, &prefix, &ext, reshard_counter, 
+            reshard_batch(&batch, &output, &prefix, &output_ext, reshard_counter, 
                           subsample_rate, seed, total_docs, surviving_docs).unwrap();
             pbar.lock().unwrap().inc(1);
         });
