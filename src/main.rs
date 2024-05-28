@@ -49,6 +49,10 @@ struct Args {
     #[arg(long, required=true)]
     batch_size: usize,
 
+    /// Expand factor: each "batch" gets expanded to this many lines 
+    #[arg(long, required=true)]
+    expand_factor: usize,
+
     /// Subsample rate: Subsamples docs independently at this rate 
     #[arg(long, default_value_t=1.0)]
     subsample_rate: f64,
@@ -200,10 +204,8 @@ fn get_output_name(output_dir: &PathBuf, prefix: &String, shard_id: usize) -> Pa
 
 
 fn reshard_batch(batch: &Vec<PathBuf>, output_dir: &PathBuf, prefix: &String, output_ext: &String,
-                       reshard_counter: Arc<AtomicUsize>, subsample_rate: f64, seed: usize,
+                       expand_factor: &usize, reshard_counter: Arc<AtomicUsize>, subsample_rate: f64, seed: usize,
                        total_docs: Arc<AtomicUsize>, surviving_docs: Arc<AtomicUsize>) -> Result<(), Error> {
-    let shard_id = reshard_counter.fetch_add(1, Ordering::SeqCst) as usize;
-    let output_pathbuf = get_output_name(output_dir, prefix, shard_id);
     let mut output_lines: Vec<String> = Vec::new();
 
 
@@ -225,27 +227,34 @@ fn reshard_batch(batch: &Vec<PathBuf>, output_dir: &PathBuf, prefix: &String, ou
             }
         }
     }
-    let output_bytes = output_lines.join("\n");
-    let output_bytes = output_bytes.as_bytes();
 
-    // Join output lines together and get the thing we want to write
-    let bytes_to_write = match output_ext.as_str() {
-        "gz" => {
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder.write_all(&output_bytes).unwrap();            
-            encoder.finish().unwrap()            
-        },
-        "zstd" | "zst" => {
-            let mut encoder = ZstdEncoder::new(Vec::new(), 0).unwrap();
-            encoder.write_all(&output_bytes).unwrap();
-            encoder.finish().unwrap()
-        },
-        _ => output_bytes.to_vec()
-    };
+    let chunk_size = (output_lines.len() + expand_factor - 1) / expand_factor;
+    let line_chunks : Vec<_> = output_lines.chunks(chunk_size).map(|chunk| chunk.to_vec()).collect();
+    for line_chunk in line_chunks {
+        let shard_id = reshard_counter.fetch_add(1, Ordering::SeqCst) as usize;
+        let output_pathbuf = get_output_name(output_dir, prefix, shard_id);
+
+        let output_bytes = line_chunk.join("\n");
+        let output_bytes = output_bytes.as_bytes();
+        // Join output lines together and get the thing we want to write
+        let bytes_to_write = match output_ext.as_str() {
+            "gz" => {
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(&output_bytes).unwrap();            
+                encoder.finish().unwrap()            
+            },
+            "zstd" | "zst" => {
+                let mut encoder = ZstdEncoder::new(Vec::new(), 0).unwrap();
+                encoder.write_all(&output_bytes).unwrap();
+                encoder.finish().unwrap()
+            },
+            _ => output_bytes.to_vec()
+        };        
+        write_mem_to_pathbuf(&bytes_to_write, &output_pathbuf).unwrap();
+    }
 
     let _ = total_docs.fetch_add(local_total, Ordering::SeqCst);
     let _ = surviving_docs.fetch_add(local_surviving, Ordering::SeqCst);
-    write_mem_to_pathbuf(&bytes_to_write, &output_pathbuf).unwrap();
     Ok(())
 }
 
@@ -272,7 +281,7 @@ fn main() -> Result<()> {
     let input_files: Vec<PathBuf> =  expand_dirs(args.input, ext).unwrap();
     let num_inputs = input_files.len();
     let batches: Vec<&[PathBuf]> = input_files.chunks(args.batch_size).collect();
-    let num_outputs = batches.len();
+    let num_outputs = batches.len() * args.expand_factor;
 
     let pbar = ProgressBar::new(num_outputs as u64)
         .with_style(
@@ -294,6 +303,7 @@ fn main() -> Result<()> {
         let output = args.output.clone();
         let prefix = args.prefix.clone();
         let output_ext = args.output_ext.clone();
+        let expand_factor = args.expand_factor.clone();
         let reshard_counter = reshard_counter.clone();        
         let subsample_rate = args.subsample_rate.clone();
         let seed = args.seed.clone();
@@ -301,7 +311,7 @@ fn main() -> Result<()> {
         let surviving_docs = surviving_docs.clone();
         let pbar = pbar.clone();
         threadpool.execute(move || {        
-            reshard_batch(&batch, &output, &prefix, &output_ext, reshard_counter, 
+            reshard_batch(&batch, &output, &prefix, &output_ext,  &expand_factor, reshard_counter, 
                           subsample_rate, seed, total_docs, surviving_docs).unwrap();
             pbar.lock().unwrap().inc(1);
         });
